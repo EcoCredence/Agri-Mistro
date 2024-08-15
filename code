@@ -1,0 +1,102 @@
+#include <DHT.h>                  // Including library for DHT
+#include <ESP8266WiFi.h>
+#include <Wire.h>                 // Include Wire library for I2C
+#include <LiquidCrystal_I2C.h>    // Include LiquidCrystal_I2C library
+
+String apiKey = "Enter your Write API key from ThingSpeak";
+const char *ssid =     "Replace with your WiFi SSID";
+const char *pass =  "Replace with your WiFi password"; 
+const char* server = "api.thingspeak.com";
+#define DHTPIN D7                  // Pin where the DHT11 is connected
+
+DHT dht(DHTPIN, DHT11);
+WiFiClient client;
+
+// Initialize the LCD with I2C address 0x27 (this might vary, common addresses are 0x27 and 0x3F)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+void setup() {
+    Serial.begin(115200);
+    delay(10);
+
+    dht.begin();
+
+    lcd.begin(16,2);
+    lcd.init();
+    lcd.backlight();  // Turn on the backlight
+
+    lcd.setCursor(0, 0);
+    lcd.print("Connecting to ");
+    lcd.setCursor(0, 1);
+    lcd.print(ssid);
+
+    WiFi.begin(ssid, pass);
+
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+
+    Serial.println("");
+    Serial.println("WiFi connected");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Connected");
+}
+
+void loop() {
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+
+    if (isnan(h) || isnan(t)) {
+        Serial.println("Failed to read from DHT sensor!");
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("DHT Sensor Error");
+        delay(2000);  // Display error message for 2 seconds
+        return;
+    }
+
+    if (client.connect(server, 80)) {
+        String postStr = apiKey;
+        postStr += "&field1=";
+        postStr += String(t);
+        postStr += "&field2=";
+        postStr += String(h);
+        postStr += "\r\n\r\n";
+
+        client.print("POST /update HTTP/1.1\n");
+        client.print("Host: api.thingspeak.com\n");
+        client.print("Connection: close\n");
+        client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
+        client.print("Content-Type: application/x-www-form-urlencoded\n");
+        client.print("Content-Length: ");
+        client.print(postStr.length());
+        client.print("\n\n");
+        client.print(postStr);
+
+        Serial.print("Temperature: ");
+        Serial.print(t);
+        Serial.print(" degrees Celsius, Humidity: ");
+        Serial.print(h);
+        Serial.println("%. Send to Thingspeak.");
+    }
+
+    client.stop();
+
+    // Update the LCD with temperature and humidity
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Temp: ");
+    lcd.print(t);
+    lcd.print(" C");
+    lcd.setCursor(0, 1);
+    lcd.print("Humidity: ");
+    lcd.print(h);
+    lcd.print(" %");
+
+    Serial.println("Waiting...");
+
+    // Thingspeak needs a minimum 15 sec delay between updates
+    delay(15000);  // Adjusted to 15 seconds
+}
